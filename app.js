@@ -825,6 +825,74 @@
       return out.buffer;
     };
   }
+
+  // ---------- books kept on this device ----------
+  // A book opened once is saved whole in Cache Storage, so the next open skips Drive entirely.
+  // sr:local = { fileId: { key, size, at } } — `at` is the last open, used to evict the oldest first.
+  const LOCAL = "sr-books-v1";
+  const hasLocal = () => "caches" in window;
+  const localKey = (b) => new URL(`__book/${b.id}?s=${b.size}&m=${q(b.modifiedTime || "")}`, location.href).href;
+  const localIdx = () => store.get("sr:local", {});
+  const localSaving = new Set();
+  async function localGet(b) {
+    if (!hasLocal()) return null;
+    try {
+      const c = await caches.open(LOCAL);
+      const r = await c.match(localKey(b));
+      if (!r) return null;
+      const blob = await r.blob();
+      if (blob.size !== Number(b.size)) { await localDrop(b.id); return null; }
+      const idx = localIdx();
+      if (idx[b.id]) { idx[b.id].at = Date.now(); store.set("sr:local", idx); }
+      return blob;
+    } catch (e) { console.warn(e); return null; }
+  }
+  async function localDrop(id) {
+    const idx = localIdx();
+    if (!idx[id]) return;
+    try { await (await caches.open(LOCAL)).delete(idx[id].key); } catch (e) { console.warn(e); }
+    delete idx[id];
+    store.set("sr:local", idx);
+  }
+  async function localRoom(size) {
+    if (!navigator.storage || !navigator.storage.estimate) return true;
+    let { usage = 0, quota = 0 } = await navigator.storage.estimate();
+    if (!quota) return true;
+    const old = Object.entries(localIdx()).sort((a, b) => a[1].at - b[1].at);
+    while (usage + size > quota * 0.8 && old.length) {
+      const [id, e] = old.shift();
+      await localDrop(id);
+      usage -= e.size;
+    }
+    return usage + size <= quota * 0.8;
+  }
+  // body: a Blob already in hand (small books, freshly added files), or omitted to download it in the background
+  async function localSave(b, body) {
+    const size = Number(b.size || 0);
+    if (!hasLocal() || !size || localSaving.has(b.id)) return;
+    localSaving.add(b.id);
+    try {
+      if (!(await localRoom(size))) return;
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      await localDrop(b.id);                     // an older copy of the same book
+      if (!body) {
+        const res = await gfetch(`${API}/files/${b.id}?alt=media`);
+        body = res.body || (await res.blob());
+      }
+      const key = localKey(b);
+      await (await caches.open(LOCAL)).put(key, new Response(body, { headers: { "Content-Type": "application/pdf" } }));
+      const idx = localIdx();
+      idx[b.id] = { key, size, at: Date.now() };
+      store.set("sr:local", idx);
+      if (!shelfEl.hidden) renderShelf();
+    } catch (e) {
+      console.warn(e);
+    } finally { localSaving.delete(b.id); }
+  }
+  async function localClear() {
+    store.set("sr:local", {});
+    try { if (hasLocal()) await caches.delete(LOCAL); } catch {}
+  }
   async function uploadToDrive(file, onProgress) {
     const init = await gfetch(`${UPLOAD}/files?uploadType=resumable&fields=id,name,size,modifiedTime`, {
       method: "POST",
@@ -858,6 +926,7 @@
       await ensureFolder();
       const meta = await uploadToDrive(file, (p) => showStatus(`Googleドライブに保存中… ${Math.floor(p * 100)}%`));
       drive.books.push(meta);
+      localSave(meta, file);
       if (docName === name && !state.bookId && !state.sample) {
         // still reading the same file: attach it to the new shelf entry
         state.bookId = meta.id;
@@ -995,7 +1064,7 @@
       const info = document.createElement("div");
       info.className = "meta";
       const pct = m.pages ? Math.min(100, Math.round((m.lastPage || 1) / m.pages * 100)) : 0;
-      info.innerHTML = `<span class="bar-track"><i style="width:${pct}%"></i></span><span class="num">${m.lastPage || 1} / ${m.pages || "–"} ・ ${fmtSize(Number(b.size || 0))}</span>`;
+      info.innerHTML = `<span class="bar-track"><i style="width:${pct}%"></i></span><span class="num">${m.lastPage || 1} / ${m.pages || "–"} ・ ${fmtSize(Number(b.size || 0))}${localIdx()[b.id] ? " ・ 端末に保存済み" : ""}</span>`;
       const del = document.createElement("button");
       del.type = "button"; del.className = "del"; del.textContent = "ゴミ箱へ";
       let armTimer;
@@ -1018,15 +1087,26 @@
     if (b.id === state.bookId) return;
     const size = Number(b.size || 0);
     try {
+      const local = await localGet(b);
+      if (local) {
+        const src = size <= FULL_MAX
+          ? { bytes: new Uint8Array(await local.arrayBuffer()) }
+          : { size, read: (s, e) => local.slice(s, e).arrayBuffer() };
+        if (await openSource(src, b.name, { book: b })) return;
+        await localDrop(b.id);                   // unreadable copy: fall back to Drive
+      }
       if (size && size <= FULL_MAX) {
         showStatus("ダウンロード中…");
         const bytes = await downloadFull(b.id, size, (p) => showStatus(`ダウンロード中… ${Math.floor(p * 100)}%`));
-        await openSource({ bytes }, b.name, { book: b });
+        const copy = new Blob([bytes]);          // pdf.js takes over `bytes`
+        if (await openSource({ bytes }, b.name, { book: b })) localSave(b, copy);
       } else {
         let opening = true;
         const read = blockReader(size, (s, e) => readRange(b.id, s, e),
           (got, total) => { if (opening) showStatus(`読み込み中… ${fmtSize(got)} / ${fmtSize(total)}（大きい本は最初に時間がかかります）`); });
-        try { await openSource({ size, read }, b.name, { book: b }); } finally { opening = false; }
+        let ok;
+        try { ok = await openSource({ size, read }, b.name, { book: b }); } finally { opening = false; }
+        if (ok) localSave(b);                    // background download, so the next open is instant
       }
     } catch (e) {
       console.warn(e);
@@ -1049,6 +1129,7 @@
     drive.books = drive.books.filter((x) => x.id !== b.id);
     libRemove(b.id);
     deleteAppFile(inkName(b.id)).catch(() => {});
+    localDrop(b.id);
     if (state.bookId === b.id) { state.bookId = null; ink.dirty = ink.strokes.length > 0; updateInkUI(); }
     toast(`「${b.name.replace(/\.pdf$/i, "")}」をゴミ箱に移動しました（ドライブのゴミ箱から戻せます）`, 4000);
     renderShelf();
@@ -1065,6 +1146,7 @@
     try { if (drive.token) google.accounts.oauth2.revoke(drive.token, () => {}); } catch {}
     drive.token = null; drive.exp = 0; drive.books = []; drive.lib = { books: {} }; drive.appIds.clear();
     store.set("sr:gauth", false);
+    localClear();
     if (state.bookId) { state.bookId = null; updateInkUI(); }
     updateShelfChrome();
     toast("Googleドライブとの接続を解除しました");
