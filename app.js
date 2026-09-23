@@ -792,6 +792,39 @@
     const buf = await res.arrayBuffer();
     return res.status === 200 && buf.byteLength > end - begin ? buf.slice(begin, end) : buf;
   }
+  // Opening a big book makes pdf.js walk every page object one request at a time (hundreds of round trips).
+  // Read in 1MB blocks and fetch the next few in parallel, so the walk isn't bound by Drive's latency.
+  function blockReader(size, fetchRange, onProgress) {
+    const BLOCK = 1 << 20, AHEAD = 8, KEEP = 48;
+    const n = Math.ceil(size / BLOCK);
+    const blocks = new Map();
+    let top = 0;
+    const load = (i) => {
+      let p = blocks.get(i);
+      if (!p) {
+        p = fetchRange(i * BLOCK, Math.min(size, (i + 1) * BLOCK));
+        p.catch(() => blocks.delete(i));
+        blocks.set(i, p);
+        if (blocks.size > KEEP) for (const k of blocks.keys()) { if (blocks.size <= KEEP) break; if (Math.abs(k - i) > AHEAD) blocks.delete(k); }
+      } else { blocks.delete(i); blocks.set(i, p); }   // keep recently used blocks
+      return p;
+    };
+    return async (begin, end) => {
+      const first = Math.floor(begin / BLOCK), last = Math.floor((end - 1) / BLOCK);
+      const need = [];
+      for (let i = first; i <= last; i++) need.push(load(i));
+      for (let i = last + 1; i <= Math.min(n - 1, last + AHEAD); i++) load(i);
+      if (onProgress && end > top) { top = end; onProgress(top / size); }
+      const parts = await Promise.all(need);
+      const out = new Uint8Array(end - begin);
+      parts.forEach((b, k) => {
+        const off = (first + k) * BLOCK;
+        const s = Math.max(begin, off), e = Math.min(end, off + b.byteLength);
+        out.set(new Uint8Array(b, s - off, e - s), s - begin);
+      });
+      return out.buffer;
+    };
+  }
   async function uploadToDrive(file, onProgress) {
     const init = await gfetch(`${UPLOAD}/files?uploadType=resumable&fields=id,name,size,modifiedTime`, {
       method: "POST",
@@ -990,7 +1023,10 @@
         const bytes = await downloadFull(b.id, size, (p) => showStatus(`ダウンロード中… ${Math.floor(p * 100)}%`));
         await openSource({ bytes }, b.name, { book: b });
       } else {
-        await openSource({ size, read: (s, e) => readRange(b.id, s, e) }, b.name, { book: b });
+        let opening = true;
+        const read = blockReader(size, (s, e) => readRange(b.id, s, e),
+          (p) => { if (opening) showStatus(`読み込み中… ${Math.floor(p * 100)}%`); });
+        try { await openSource({ size, read }, b.name, { book: b }); } finally { opening = false; }
       }
     } catch (e) {
       console.warn(e);
