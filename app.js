@@ -133,7 +133,7 @@
     try { pages = await Promise.all(nums.map(getPage)); } catch (e) { showStatus("ページを読み込めませんでした。", true); return; }
     if (token !== renderToken) return;
 
-    const pad = stage.clientWidth < 600 ? 8 : 20;
+    const pad = document.body.classList.contains("immersive") ? 0 : stage.clientWidth < 600 ? 8 : 20;
     const availW = Math.max(50, stage.clientWidth - pad * 2);
     const availH = Math.max(50, stage.clientHeight - pad * 2);
     const base = pages.map((p) => p.getViewport({ scale: 1 }));
@@ -1368,18 +1368,34 @@
   $("#undo").addEventListener("click", undo);
   $("#save").addEventListener("click", savePdf);
 
-  // fullscreen (optional — hidden where unsupported)
+  // full screen: bars hidden, page as large as possible. The browser's own fullscreen is added where supported.
   const fsBtn = $("#fs");
   const root = document.documentElement;
   const reqFs = root.requestFullscreen || root.webkitRequestFullscreen;
-  if (!reqFs) fsBtn.hidden = true;
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const isFull = () => document.body.classList.contains("immersive");
+  let browserFs = false;
+  function setFull(on) {
+    document.body.classList.toggle("immersive", on);
+    document.body.classList.remove("bars");
+    fsBtn.textContent = on ? "全画面を終了" : "全画面";
+    if (on && !tocEl.hidden) setToc(false, false);
+  }
   function toggleFullscreen() {
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    const on = !isFull();
+    setFull(on);
+    if (!reqFs) return;
     try {
-      const p = fsEl ? (document.exitFullscreen || document.webkitExitFullscreen).call(document) : reqFs.call(root);
+      const p = on ? (fsElement() ? null : reqFs.call(root)) : (fsElement() ? (document.exitFullscreen || document.webkitExitFullscreen).call(document) : null);
       if (p && p.catch) p.catch(() => {});
     } catch {}
   }
+  function onFsChange() {
+    if (fsElement()) browserFs = true;
+    else if (browserFs) { browserFs = false; if (isFull()) setFull(false); }   // left with Esc etc.
+  }
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
   fsBtn.addEventListener("click", toggleFullscreen);
 
   // keyboard
@@ -1400,7 +1416,7 @@
     else if (k === "Home") go(-state.idx);
     else if (k === "End") go(state.spreads.length);
     else if (k === "f" || k === "F") toggleFullscreen();
-    else if (k === "h" || k === "H") document.body.classList.toggle("immersive");
+    else if (k === "h" || k === "H") setFull(!isFull());
     else if ((k === "t" || k === "T") && !tocBtn.disabled) setToc(tocEl.hidden);
     else if (k === "Escape" && !tocEl.hidden) setToc(false);
     else return;
@@ -1514,7 +1530,8 @@
       const fx = (e.clientX - r.left) / r.width;
       if (fx < 1 / 3) goLeft();
       else if (fx > 2 / 3) goRight();
-      else document.body.classList.toggle("immersive");
+      else if (isFull()) document.body.classList.toggle("bars");
+      else setFull(true);
     }
   };
   stage.addEventListener("pointerup", endPointer);

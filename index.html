@@ -223,7 +223,6 @@
   .toc-item.current { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
   .toc-item.current .pg { color: var(--accent); }
   .toc-item:disabled { cursor: default; opacity: 1; }
-  body.immersive #toc { display: none; }
 
   /* ---- bookshelf ---- */
   #shelf {
@@ -375,16 +374,32 @@
   }
   .count b { color: var(--ink); font-weight: 500; }
 
-  body.immersive .bar { display: none; }
-  body.immersive { padding-inline: 0; }
+  /* full screen: the page fills the screen; a tap in the middle brings the bars back as a see-through overlay */
+  body.immersive { padding-inline: 0; grid-template-rows: 1fr; }
   body.immersive #stage { border-radius: 0; }
+  body.immersive .bar {
+    position: fixed; left: 0; right: 0; z-index: 10;
+    padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    opacity: 0; visibility: hidden;
+    transition: opacity .18s, visibility .18s;
+  }
+  body.immersive .bar.top { top: 0; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); border-bottom: 1px solid var(--line); }
+  body.immersive .bar.bottom { bottom: 0; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); border-top: 1px solid var(--line); }
+  body.immersive.bars .bar { opacity: 1; visibility: visible; }
+  body.immersive #toc {
+    position: absolute; top: 0; bottom: 0; left: 0; z-index: 5;
+    width: min(85%, 320px); border-radius: 0;
+    box-shadow: 0 10px 40px var(--shadow);
+  }
 
   @media (max-width: 720px) {
     .seg label { padding: 0 9px; }
     .toggle { padding-right: 9px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .toggle .knob, .toggle .knob::after { transition: none; }
+    .toggle .knob, .toggle .knob::after, body.immersive .bar { transition: none; }
   }
 </style>
 </head>
@@ -464,7 +479,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async></script>
-<script src="config.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
