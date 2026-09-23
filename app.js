@@ -798,11 +798,12 @@
     const BLOCK = 1 << 20, AHEAD = 8, KEEP = 48;
     const n = Math.ceil(size / BLOCK);
     const blocks = new Map();
-    let top = 0;
+    let got = 0;
     const load = (i) => {
       let p = blocks.get(i);
       if (!p) {
         p = fetchRange(i * BLOCK, Math.min(size, (i + 1) * BLOCK));
+        if (onProgress) p.then((b) => { got += b.byteLength; onProgress(got, size); }, () => {});
         p.catch(() => blocks.delete(i));
         blocks.set(i, p);
         if (blocks.size > KEEP) for (const k of blocks.keys()) { if (blocks.size <= KEEP) break; if (Math.abs(k - i) > AHEAD) blocks.delete(k); }
@@ -814,7 +815,6 @@
       const need = [];
       for (let i = first; i <= last; i++) need.push(load(i));
       for (let i = last + 1; i <= Math.min(n - 1, last + AHEAD); i++) load(i);
-      if (onProgress && end > top) { top = end; onProgress(top / size); }
       const parts = await Promise.all(need);
       const out = new Uint8Array(end - begin);
       parts.forEach((b, k) => {
@@ -1025,7 +1025,7 @@
       } else {
         let opening = true;
         const read = blockReader(size, (s, e) => readRange(b.id, s, e),
-          (p) => { if (opening) showStatus(`読み込み中… ${Math.floor(p * 100)}%`); });
+          (got, total) => { if (opening) showStatus(`読み込み中… ${fmtSize(got)} / ${fmtSize(total)}（大きい本は最初に時間がかかります）`); });
         try { await openSource({ size, read }, b.name, { book: b }); } finally { opening = false; }
       }
     } catch (e) {
