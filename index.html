@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>見開きリーダー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<style>
+  :root {
+    --ground: #E4E8EB;
+    --surface: #F6F8F9;
+    --stage: #CFD6DB;
+    --ink: #1A2126;
+    --muted: #5A6770;
+    --line: #C3CBD1;
+    --accent: #1D6B74;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #D3E6E8;
+    --shadow: rgba(18, 32, 40, .28);
+    --spine: rgba(20, 30, 36, .16);
+    --font-ui: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    --font-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111417;
+      --surface: #1A1F23;
+      --stage: #0A0C0E;
+      --ink: #E4E9EC;
+      --muted: #8B98A1;
+      --line: #2C343A;
+      --accent: #5FB2BB;
+      --accent-ink: #081618;
+      --accent-soft: #1C3437;
+      --shadow: rgba(0, 0, 0, .7);
+      --spine: rgba(0, 0, 0, .28);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111417;
+    --surface: #1A1F23;
+    --stage: #0A0C0E;
+    --ink: #E4E9EC;
+    --muted: #8B98A1;
+    --line: #2C343A;
+    --accent: #5FB2BB;
+    --accent-ink: #081618;
+    --accent-soft: #1C3437;
+    --shadow: rgba(0, 0, 0, .7);
+    --spine: rgba(0, 0, 0, .28);
+  }
+
+  html { height: 100%; box-sizing: border-box; }
+  *, *::before, *::after { box-sizing: inherit; }
+  body {
+    height: 100%;
+    margin: 0;
+    padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* ---- bars ---- */
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-block: 10px;
+    min-width: 0;
+  }
+  .top { flex-wrap: wrap; row-gap: 8px; }
+  .doc-name {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 160px;
+  }
+  .doc-name strong {
+    font-weight: 700;
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chip {
+    flex: none;
+    font-size: 11px;
+    letter-spacing: .06em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  button, .btn {
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-height: 38px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover, .btn:hover { border-color: var(--muted); }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+  .btn-primary:hover { border-color: var(--accent); filter: brightness(1.08); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #file:focus-visible + .btn { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label {
+    min-height: 36px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .seg label + input + label, .seg input + label ~ label { border-left: 1px solid var(--line); }
+  .seg input:checked + label { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 12px 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .toggle input { position: absolute; opacity: 0; pointer-events: none; }
+  .toggle .knob {
+    width: 30px; height: 18px; border-radius: 999px;
+    background: var(--line); position: relative; flex: none;
+    transition: background .15s;
+  }
+  .toggle .knob::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--surface);
+    transition: transform .15s;
+  }
+  .toggle input:checked + .knob { background: var(--accent); }
+  .toggle input:checked + .knob::after { transform: translateX(12px); }
+  .toggle input:focus-visible + .knob { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---- main row: toc + stage ---- */
+  .main { position: relative; display: flex; gap: 12px; min-height: 0; }
+  #toc {
+    flex: none;
+    width: 280px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .toc-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 8px 8px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .toc-head strong { flex: 1; font-size: 13px; letter-spacing: .08em; color: var(--muted); }
+  .toc-head button { min-height: 32px; padding: 0 10px; font-size: 13px; }
+  #tocList { overflow-y: auto; padding-block: 6px; -webkit-overflow-scrolling: touch; }
+  #tocList ul { list-style: none; margin: 0; padding: 0; }
+  .toc-row { display: flex; align-items: stretch; }
+  .toc-row .caret, .toc-row .spacer { flex: none; width: 28px; }
+  .toc-row .caret {
+    min-height: 0; padding: 0; border: 0; background: none; color: var(--muted);
+    font-size: 11px; border-radius: 6px;
+  }
+  .toc-row .caret[aria-expanded="true"] span { transform: rotate(90deg); }
+  .toc-row .caret span { display: inline-block; transition: transform .12s; }
+  .toc-item {
+    flex: 1; min-width: 0; min-height: 34px;
+    justify-content: space-between; align-items: baseline; gap: 10px;
+    padding: 7px 10px 7px 2px;
+    border: 0; border-radius: 6px; background: none;
+    text-align: left; white-space: normal; line-height: 1.45;
+  }
+  .toc-item:hover { background: var(--ground); }
+  .toc-item .t { min-width: 0; overflow-wrap: anywhere; }
+  .toc-item .pg { flex: none; font-family: var(--font-num); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .toc-item.current { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .toc-item.current .pg { color: var(--accent); }
+  .toc-item:disabled { cursor: default; opacity: 1; }
+  body.immersive #toc { display: none; }
+
+  /* ---- bookshelf ---- */
+  #shelf {
+    position: fixed; inset: 0; z-index: 20;
+    background: var(--ground);
+    overflow-y: auto;
+    padding: calc(env(safe-area-inset-top, 0px) + 16px) max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 24px) max(16px, env(safe-area-inset-left, 0px));
+  }
+  .shelf-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+  .shelf-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .shelf-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .04em; }
+  .shelf-head .grow { flex: 1; }
+  .meter { font-family: var(--font-num); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .shelf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 28px 20px;
+  }
+  .book { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .book .cover {
+    display: block; width: 100%; padding: 0; border: 0; background: none;
+    aspect-ratio: 1 / 1.38; max-width: 100%;
+    border-radius: 3px 6px 6px 3px; overflow: hidden;
+    box-shadow: 0 1px 2px var(--shadow), 0 8px 20px -8px var(--shadow);
+    position: relative;
+  }
+  .book .cover::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 6%;
+    background: linear-gradient(to right, rgba(0,0,0,.18), transparent);
+  }
+  .book .cover img { width: 100%; height: 100%; object-fit: cover; display: block; background: #fff; }
+  .book .cover .ph {
+    width: 100%; height: 100%; display: grid; place-items: center; padding: 12px;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 15px; line-height: 1.4;
+    white-space: normal; text-align: center;
+  }
+  .book .cover.reading { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .book .title {
+    font-weight: 700; font-size: 13px; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .book .meta { display: flex; align-items: center; gap: 8px; }
+  .book .bar-track { flex: 1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .book .bar-track i { display: block; height: 100%; background: var(--accent); }
+  .book .num { font-family: var(--font-num); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .book .del {
+    align-self: flex-start; min-height: 28px; padding: 0 8px; font-size: 12px;
+    color: var(--muted); background: none; border-color: transparent;
+  }
+  .book .del.armed { color: #fff; background: #B3261E; border-color: #B3261E; }
+  .empty { color: var(--muted); margin: 24px 0; line-height: 1.8; max-width: 60ch; }
+  .connect {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
+    padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  }
+  .connect p { margin: 0; line-height: 1.8; max-width: 60ch; }
+  .shelf-foot { margin: 8px 0 0; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .linkish { min-height: 28px; padding: 0 8px; font-size: 12px; background: none; color: var(--muted); }
+
+  @media (max-width: 800px) {
+    #toc {
+      position: absolute; top: 0; bottom: 0; left: 0; z-index: 5;
+      width: min(85%, 320px);
+      box-shadow: 0 10px 40px var(--shadow);
+    }
+  }
+
+  /* ---- stage ---- */
+  #stage {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: var(--stage);
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    touch-action: pinch-zoom;
+    -webkit-touch-callout: none;
+    cursor: default;
+  }
+  body.drawing #stage { cursor: crosshair; }
+  .spread { display: flex; align-items: center; justify-content: center; }
+  .page { position: relative; line-height: 0; background: #fff; box-shadow: 0 6px 24px var(--shadow); }
+  .page canvas { display: block; }
+  .page canvas.ink {
+    position: absolute; inset: 0;
+    mix-blend-mode: multiply;
+    pointer-events: none;
+  }
+  .spread.two .page.left::after,
+  .spread.two .page.right::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 7%;
+    pointer-events: none;
+  }
+  .spread.two .page.left::after { right: 0; background: linear-gradient(to left, var(--spine), transparent); }
+  .spread.two .page.right::after { left: 0; background: linear-gradient(to right, var(--spine), transparent); }
+
+  .status {
+    position: absolute; inset: auto 50% 16px auto; transform: translateX(50%);
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; max-width: calc(100% - 32px);
+    box-shadow: 0 4px 16px var(--shadow);
+  }
+  .status.error { color: #B3261E; border-color: #B3261E; }
+
+  #drop {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border: 3px dashed var(--accent); border-radius: 10px;
+    font-size: 18px; font-weight: 700; color: var(--ink);
+    pointer-events: none;
+  }
+
+  /* ---- bottom ---- */
+  .bottom { gap: 8px 16px; flex-wrap: wrap; }
+  .tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .tools .sep { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--line); }
+  .tool[aria-pressed="true"], .tbtn[aria-pressed="true"] {
+    border: 2px solid var(--accent);
+    background: var(--accent-soft);
+    font-weight: 700;
+  }
+  .swatch { width: 40px; padding: 0; }
+  .swatch span {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--c);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+  }
+  #save.dirty::after {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor; margin-left: 2px;
+  }
+  .navgroup { display: flex; align-items: center; gap: 10px; flex: 1 1 320px; min-width: 0; }
+  .nav { min-width: 48px; font-size: 20px; padding: 0 12px; }
+  button:disabled { opacity: .4; cursor: default; }
+  #slider { flex: 1; min-width: 0; accent-color: var(--accent); height: 38px; }
+  .count {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+    min-width: 9ch;
+    text-align: center;
+  }
+  .count b { color: var(--ink); font-weight: 500; }
+
+  body.immersive .bar { display: none; }
+  body.immersive { padding-inline: 0; }
+  body.immersive #stage { border-radius: 0; }
+
+  @media (max-width: 720px) {
+    .seg label { padding: 0 9px; }
+    .toggle { padding-right: 9px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toggle .knob, .toggle .knob::after { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar top">
+  <input type="file" id="file" accept="application/pdf,.pdf">
+  <label for="file" class="btn btn-primary">PDFを開く</label>
+  <button type="button" id="shelfBtn" hidden>本棚</button>
+  <button type="button" id="tocBtn" class="tbtn" aria-pressed="false" disabled title="このPDFには目次がありません">目次</button>
+  <div class="doc-name"><strong id="docName">—</strong><span id="sampleChip" class="chip">サンプル</span></div>
+  <div class="controls">
+    <div class="seg" role="radiogroup" aria-label="表示モード">
+      <input type="radio" name="mode" id="mode-auto" value="auto"><label for="mode-auto">自動</label>
+      <input type="radio" name="mode" id="mode-double" value="double"><label for="mode-double">見開き</label>
+      <input type="radio" name="mode" id="mode-single" value="single"><label for="mode-single">単ページ</label>
+    </div>
+    <label class="toggle" title="1ページ目を表紙として単独表示"><input type="checkbox" id="cover"><span class="knob"></span>表紙を単独</label>
+    <label class="toggle" title="右から左へめくる（縦書きの本・漫画）"><input type="checkbox" id="rtl"><span class="knob"></span>右綴じ</label>
+    <button id="fs" type="button" title="全画面 (F)">全画面</button>
+  </div>
+</header>
+
+<div class="main">
+  <aside id="toc" hidden aria-label="目次">
+    <div class="toc-head"><strong>目次</strong><button type="button" id="tocClose">隠す</button></div>
+    <nav id="tocList"></nav>
+  </aside>
+  <main id="stage" aria-label="ページ表示">
+    <div class="spread" id="spread"></div>
+    <div id="status" class="status" hidden></div>
+    <div id="drop" hidden>ここにPDFをドロップ</div>
+  </main>
+</div>
+
+<section id="shelf" hidden aria-label="本棚">
+  <div class="shelf-inner">
+    <div class="shelf-head">
+      <h2>本棚</h2>
+      <span id="shelfMeter" class="meter"></span>
+      <span class="grow"></span>
+      <button type="button" id="shelfRefresh" hidden>更新</button>
+      <label for="file" class="btn btn-primary" id="shelfAdd" hidden>PDFを追加</label>
+      <button type="button" id="shelfClose">閉じる</button>
+    </div>
+    <div id="connectBox" class="connect" hidden>
+      <p id="connectMsg">Googleドライブに接続すると、ドライブの「見開きリーダー」フォルダが本棚になります。iPadとPCで同じ本・マーカー・読んでいた位置が使えます。</p>
+      <button type="button" id="connectBtn" class="btn-primary">Googleドライブに接続</button>
+    </div>
+    <div id="shelfGrid" class="shelf-grid"></div>
+    <p id="shelfEmpty" class="empty" hidden>まだ本がありません。「PDFを追加」で入れるか、PCのGoogleドライブで「見開きリーダー」フォルダにPDFを入れて「更新」を押してください。</p>
+    <p class="shelf-foot"><span id="acctNote"></span> <button type="button" id="disconnectBtn" class="linkish" hidden>接続を解除</button></p>
+  </div>
+</section>
+
+<footer class="bar bottom">
+  <div class="tools" role="toolbar" aria-label="書き込み">
+    <button type="button" class="tool swatch" id="t-yellow" data-tool="marker" data-color="#FFD83D" aria-label="黄色マーカー" title="黄色マーカー"><span style="--c:#FFD83D"></span></button>
+    <button type="button" class="tool swatch" id="t-pink" data-tool="marker" data-color="#FF7EB3" aria-label="ピンクマーカー" title="ピンクマーカー"><span style="--c:#FF7EB3"></span></button>
+    <button type="button" class="tool swatch" id="t-green" data-tool="marker" data-color="#7ADB8C" aria-label="緑マーカー" title="緑マーカー"><span style="--c:#7ADB8C"></span></button>
+    <button type="button" class="tool swatch" id="t-blue" data-tool="marker" data-color="#6CC4FF" aria-label="青マーカー" title="青マーカー"><span style="--c:#6CC4FF"></span></button>
+    <button type="button" class="tool" id="t-pen" data-tool="pen" data-color="#D0342C" title="細い赤ペン">赤ペン</button>
+    <button type="button" class="tool" id="t-eraser" data-tool="eraser" data-color="" title="なぞった線を消す">消しゴム</button>
+    <span class="sep" aria-hidden="true"></span>
+    <label class="toggle" title="Apple Pencil以外（マウス・指）でも書き込む"><input type="checkbox" id="drawMode"><span class="knob"></span>指・マウスで書く</label>
+    <button type="button" id="undo" title="元に戻す (Ctrl+Z)">戻す</button>
+    <button type="button" id="save" class="btn-primary" title="書き込みを入れたPDFを保存 (Ctrl+S)">PDFを保存</button>
+  </div>
+  <div class="navgroup">
+    <button class="nav" id="btnLeft" type="button" aria-label="左へ">‹</button>
+    <input type="range" id="slider" min="0" max="0" value="0" aria-label="ページ位置">
+    <span class="count" id="count"><b>–</b> / –</span>
+    <button class="nav" id="btnRight" type="button" aria-label="右へ">›</button>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
